@@ -1,0 +1,45 @@
+
+.header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+}
+.img1 {
+    width: 100px;
+}
+/* btns */
+button {
+    background-color: rgb(241, 156, 87);
+    color: rgb(218, 206, 206);
+    border: none;
+    padding: 10px 16px;
+    border-radius: 10px;
+    /* transition: 0.3;
+    animation: btn1 0.3 linear; */
+}
+button:hover {
+    background-color: rgb(241, 155, 93);
+    color: rgb(250, 252, 249);
+    cursor: pointer;
+}
+* {
+    font-family: Verdana, Geneva, Tahoma, sans-serif;
+}
+/* texts */
+.h21 {
+    font-size: 32px;
+    color: #041dfd;
+}
+.h11 {
+    font-size: 50px;
+    color: #ffae00;
+}
+p {
+    font-size: 20px;
+    color: #1c80f3;
+}
+.ul1 {
+    list-style: none;
+    display: flex;
+    gap: 20px;
+}

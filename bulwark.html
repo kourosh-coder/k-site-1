@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bulwark</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Instrument+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  --bg:#e9eef6;--card:#fff;--ink:#1c2740;--muted:#6b7794;--line:#d5dcea;--cell:#d5dff2;--path:#ead98a;
+  --p1:#1c2740;--accent:#2f5bea;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--bg:#141b2d;--card:#24304e;--ink:#e8edf8;--muted:#93a0bf;--line:#2c3856;--cell:#2a3655;--path:#5a5225;--p1:#e8edf8;--accent:#7b9bff}
+}
+:root[data-theme="dark"]{--bg:#141b2d;--card:#24304e;--ink:#e8edf8;--muted:#93a0bf;--line:#2c3856;--cell:#2a3655;--path:#5a5225;--p1:#e8edf8;--accent:#7b9bff}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*:before,*:after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Instrument Sans",system-ui,sans-serif;font-size:16px;line-height:1.45}
+main{max-width:760px;margin:0 auto;padding:20px 12px 36px}
+h1{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-weight:700;font-size:2.2rem;line-height:1.1;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0;font-weight:500}
+.row .sp{flex:1}
+button{font:inherit;cursor:pointer;border-radius:10px;border:2px solid var(--line);background:var(--card);color:var(--ink);padding:6px 12px}
+button[aria-pressed=true]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button.go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
+:root[data-theme="dark"] button.go{color:#141b2d}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+canvas{display:block;width:100%;height:auto;aspect-ratio:3/2;border:2px solid var(--line);border-radius:12px;background:var(--line);touch-action:manipulation}
+.msg{min-height:1.6em;font-weight:500}
+.help{color:var(--muted);font-size:.9rem;margin:8px 0 0}
+</style>
+</head>
+<body>
+<main>
+  <h1>Bulwark</h1>
+  <p class="sub">Stop the invaders before they reach your base. Build towers on the open tiles.</p>
+  <div class="row"><span>Gold <b id="g"></b></span><span>Lives <b id="l"></b></span><span>Wave <b id="w"></b></span><span id="best" class="sp"></span></div>
+  <div class="row" id="tw" role="group" aria-label="Choose a tower to build"></div>
+  <canvas id="cv" width="720" height="480" aria-label="Game board. Click an open tile to build, or a tower to select it."></canvas>
+  <div class="row" id="panel" hidden><span id="pi" class="sp"></span><button id="up" type="button"></button><button id="sell" type="button"></button></div>
+  <div class="msg" id="msg" aria-live="polite"></div>
+  <div class="row"><button class="go" id="start" type="button">Start wave</button><button id="spd" type="button">Speed 1x</button><button id="new" type="button">New game</button></div>
+  <p class="help">Keys: 1, 2, 3 pick a tower, N starts a wave. Bolt is fast and cheap. Cannon splashes groups. Frost slows enemies so every other tower hits more. Click a tower to upgrade or sell it. Every 5th wave brings a boss.</p>
+</main>
+<script>
+var CW=15,CH=10,S=48,KEY="bulwark-best";
+var TW={B:{n:"Bolt",c:50,d:9,r:2.7,rt:.45,col:"#2f5bea"},C:{n:"Cannon",c:90,d:24,r:2.5,rt:1.5,col:"#e0453a"},F:{n:"Frost",c:70,d:2,r:2.3,rt:.8,col:"#2a9d8f"}};
+var EN={G:{hp:40,sp:55,b:5,r:11,l:1},R:{hp:22,sp:95,b:4,r:8,l:1},T:{hp:160,sp:36,b:14,r:15,l:2},X:{hp:800,sp:28,b:80,r:20,l:5}};
+var WP=[[0,2],[12,2],[12,5],[3,5],[3,8],[14,8]];
+var pts=WP.map(function(p){return[p[0]*S+S/2,p[1]*S+S/2]}),segL=[],total=0,pc={};
+for(var i=1;i<WP.length;i++){
+  var a=WP[i-1],b=WP[i];segL.push(Math.abs(b[0]-a[0])*S+Math.abs(b[1]-a[1])*S);total+=segL[i-1];
+  var dx=Math.sign(b[0]-a[0]),dy=Math.sign(b[1]-a[1]),x=a[0],y=a[1];pc[x+","+y]=1;
+  while(x!==b[0]||y!==b[1]){x+=dx;y+=dy;pc[x+","+y]=1}
+}
+function posAt(d){var i=0;while(i<segL.length-1&&d>segL[i]){d-=segL[i];i++}
+  var a=pts[i],b=pts[i+1],t=Math.min(1,d/segL[i]);return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}
+var cv=document.getElementById("cv"),ctx=cv.getContext("2d"),cs=getComputedStyle(document.documentElement);
+function col(n){return cs.getPropertyValue(n).trim()}
+var gold,lives,wave,active,over,speed=1,towers,enemies,fx,queue,spawnCd,sel,build="B",hover=null,msg,last=0;
+function getBest(){try{return parseInt(localStorage.getItem(KEY),10)||0}catch(e){return 0}}
+function st(t){var b=TW[t.t],k=t.l-1;return{d:b.d*(1+.7*k),r:(b.r+.2*k)*S,rt:b.rt*(1-.1*k)}}
+function upCost(t){return Math.round(TW[t.t].c*.75*t.l)}
+function towerAt(x,y){return towers.find(function(t){return t.x===x&&t.y===y})}
+function makeWave(n){
+  var q=[],cnt=5+Math.floor(n*1.8);
+  for(var i=0;i<cnt;i++){var r=Math.random();q.push(n>=2&&r<.3?"R":n>=4&&r>.8?"T":"G")}
+  if(n%5===0)q.push("X");
+  return q;
+}
+function startWave(){
+  if(active||over)return;
+  wave++;queue=makeWave(wave);active=true;spawnCd=0;msg="Wave "+wave+" incoming.";
+}
+function update(dt){
+  if(active&&queue.length){
+    spawnCd-=dt;
+    if(spawnCd<=0){var k=queue.shift(),hp=EN[k].hp*(1+.15*wave);enemies.push({k:k,d:0,hp:hp,max:hp,slow:0});spawnCd=Math.max(.35,.8-.02*wave)}
+  }
+  enemies.forEach(function(e){var s=EN[e.k].sp*(e.slow>0?.5:1);e.slow-=dt;e.d+=s*dt});
+  enemies=enemies.filter(function(e){if(e.d>=total){lives-=EN[e.k].l;return false}return true});
+  towers.forEach(function(t){
+    t.cd-=dt;if(t.cd>0)return;
+    var s=st(t),cx=t.x*S+S/2,cy=t.y*S+S/2,tg=null,td=-1;
+    enemies.forEach(function(e){var p=posAt(e.d);if(Math.hypot(p[0]-cx,p[1]-cy)<=s.r&&e.d>td){td=e.d;tg=e}});
+    if(!tg)return;
+    t.cd=s.rt;var p=posAt(tg.d);
+    if(t.t==="B"){tg.hp-=s.d;fx.push({l:1,a:cx,b:cy,x:p[0],y:p[1],t:.12,c:TW.B.col})}
+    else if(t.t==="C"){
+      enemies.forEach(function(e){var q=posAt(e.d),h=Math.hypot(q[0]-p[0],q[1]-p[1]);if(h<=S*1.1)e.hp-=h<3?s.d:s.d*.6});
+      fx.push({l:0,x:p[0],y:p[1],t:.25,c:TW.C.col,r:S*1.1});
+    }else{
+      enemies.forEach(function(e){var q=posAt(e.d);if(Math.hypot(q[0]-p[0],q[1]-p[1])<=S*.8){e.hp-=s.d;e.slow=1.5}});
+      fx.push({l:0,x:p[0],y:p[1],t:.2,c:TW.F.col,r:S*.8});
+    }
+  });
+  enemies=enemies.filter(function(e){if(e.hp<=0){gold+=EN[e.k].b;return false}return true});
+  fx.forEach(function(f){f.t-=dt});fx=fx.filter(function(f){return f.t>0});
+  if(active&&!queue.length&&!enemies.length){active=false;var bn=20+wave*3;gold+=bn;msg="Wave "+wave+" cleared. +"+bn+" gold. Build or upgrade, then start the next wave."}
+  if(lives<=0){
+    lives=0;over=true;active=false;
+    try{if(wave>getBest())localStorage.setItem(KEY,String(wave))}catch(e){}
+    msg="Game over. You reached wave "+wave+".";
+  }
+}
+function draw(){
+  ctx.fillStyle=col("--line");ctx.fillRect(0,0,cv.width,cv.height);
+  for(var y=0;y<CH;y++)for(var x=0;x<CW;x++){
+    ctx.fillStyle=pc[x+","+y]?col("--path"):col("--cell");ctx.fillRect(x*S+1,y*S+1,S-2,S-2);
+  }
+  ctx.fillStyle=col("--p1");ctx.fillRect(14*S+4,8*S+4,S-8,S-8);
+  ctx.fillStyle=col("--muted");ctx.font="bold 18px sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";
+  ctx.fillText("\u25B6",S/2,2*S+S/2);
+  if(hover&&!over&&!pc[hover.x+","+hover.y]&&!towerAt(hover.x,hover.y)&&hover.x>=0&&hover.x<CW&&hover.y>=0&&hover.y<CH){
+    ctx.strokeStyle=TW[build].col;ctx.globalAlpha=.6;ctx.beginPath();ctx.arc(hover.x*S+S/2,hover.y*S+S/2,TW[build].r*S,0,7);ctx.stroke();ctx.globalAlpha=1;
+  }
+  towers.forEach(function(t){
+    var cx=t.x*S+S/2,cy=t.y*S+S/2;
+    if(t===sel){ctx.strokeStyle=col("--accent");ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,st(t).r,0,7);ctx.stroke();ctx.lineWidth=1}
+    ctx.fillStyle=TW[t.t].col;ctx.beginPath();ctx.arc(cx,cy,S*.36,0,7);ctx.fill();
+    ctx.fillStyle="#fff";ctx.font="bold 17px sans-serif";ctx.fillText(t.t,cx,cy-2);
+    for(var i=0;i<t.l;i++){ctx.beginPath();ctx.arc(cx-(t.l-1)*4+i*8,cy+S*.24,2.2,0,7);ctx.fill()}
+  });
+  enemies.forEach(function(e){
+    var p=posAt(e.d),r=EN[e.k].r;
+    ctx.fillStyle=col("--ink");ctx.beginPath();ctx.arc(p[0],p[1],r,0,7);ctx.fill();
+    if(e.slow>0||e.k==="X"){ctx.strokeStyle=e.slow>0?"#2a9d8f":"#e0453a";ctx.lineWidth=3;ctx.stroke();ctx.lineWidth=1}
+    ctx.fillStyle="#e0453a";ctx.fillRect(p[0]-r,p[1]-r-7,2*r,3);
+    ctx.fillStyle="#3fbf6a";ctx.fillRect(p[0]-r,p[1]-r-7,2*r*Math.max(0,e.hp/e.max),3);
+  });
+  fx.forEach(function(f){
+    ctx.globalAlpha=Math.min(1,f.t*5);ctx.strokeStyle=f.c;ctx.fillStyle=f.c;
+    if(f.l){ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(f.a,f.b);ctx.lineTo(f.x,f.y);ctx.stroke();ctx.lineWidth=1}
+    else{ctx.globalAlpha*=.35;ctx.beginPath();ctx.arc(f.x,f.y,f.r,0,7);ctx.fill()}
+    ctx.globalAlpha=1;
+  });
+}
+function $(i){return document.getElementById(i)}
+function ui(){
+  $("g").textContent=gold;$("l").textContent=lives;$("w").textContent=wave;
+  $("best").textContent="Best wave: "+getBest();
+  $("msg").textContent=msg;
+  $("start").disabled=active||over;
+  document.querySelectorAll("#tw button").forEach(function(b){b.setAttribute("aria-pressed",b.dataset.t===build)});
+  var p=$("panel");p.hidden=!sel;
+  if(sel){
+    var s=st(sel),c=upCost(sel);
+    $("pi").textContent=TW[sel.t].n+" level "+sel.l+": damage "+s.d.toFixed(0)+", fires every "+s.rt.toFixed(2)+"s";
+    $("up").textContent=sel.l>=3?"Max level":"Upgrade "+c+"g";$("up").disabled=over||sel.l>=3||gold<c;
+    $("sell").textContent="Sell +"+Math.floor(sel.sp*.6)+"g";$("sell").disabled=over;
+  }
+}
+function frame(ts){
+  var dt=Math.min(.05,(ts-last)/1000||0);last=ts;
+  if(!over)update(dt*speed);
+  draw();ui();requestAnimationFrame(frame);
+}
+function cell(ev){var r=cv.getBoundingClientRect();return{x:Math.floor((ev.clientX-r.left)*cv.width/r.width/S),y:Math.floor((ev.clientY-r.top)*cv.height/r.height/S)}}
+cv.addEventListener("mousemove",function(ev){hover=cell(ev)});
+cv.addEventListener("mouseleave",function(){hover=null});
+cv.addEventListener("click",function(ev){
+  if(over)return;
+  var c=cell(ev);if(c.x<0||c.y<0||c.x>=CW||c.y>=CH)return;
+  var t=towerAt(c.x,c.y);if(t){sel=t;return}
+  sel=null;if(pc[c.x+","+c.y])return;
+  var b=TW[build];if(gold<b.c){msg="Not enough gold for a "+b.n+" tower.";return}
+  gold-=b.c;towers.push({x:c.x,y:c.y,t:build,l:1,cd:0,sp:b.c});msg="";
+});
+$("up").onclick=function(){if(sel&&!over&&sel.l<3&&gold>=upCost(sel)){gold-=upCost(sel);sel.sp+=upCost(sel);sel.l++}};
+$("sell").onclick=function(){if(sel&&!over){gold+=Math.floor(sel.sp*.6);towers=towers.filter(function(t){return t!==sel});sel=null}};
+$("start").onclick=startWave;
+$("spd").onclick=function(){speed=speed===1?2:1;this.textContent="Speed "+speed+"x"};
+$("new").onclick=newGame;
+["B","C","F"].forEach(function(k){
+  var b=document.createElement("button");b.type="button";b.dataset.t=k;b.textContent=TW[k].n+" "+TW[k].c+"g";
+  b.onclick=function(){build=k;sel=null};$("tw").appendChild(b);
+});
+document.addEventListener("keydown",function(e){
+  if(e.key==="1")build="B";else if(e.key==="2")build="C";else if(e.key==="3")build="F";
+  else if(e.key==="n"||e.key==="N")startWave();
+});
+function newGame(){
+  gold=150;lives=20;wave=0;active=false;over=false;towers=[];enemies=[];fx=[];queue=[];sel=null;
+  msg="Place towers on the open tiles, then start the first wave.";
+}
+newGame();requestAnimationFrame(frame);
+</script>
+</body>
+</html>

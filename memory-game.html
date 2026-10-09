@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pair Up</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Instrument+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  --bg:#e9eef6; --card:#ffffff; --ink:#1c2740; --muted:#6b7794; --line:#d5dcea;
+  --back:#2f5bea; --back2:#5d82ff; --match:#f6d84c;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--bg:#141b2d;--card:#24304e;--ink:#e8edf8;--muted:#93a0bf;--line:#2c3856;--back:#4a6fe0;--back2:#6b8cff;--match:#8a7a1e}
+}
+:root[data-theme="dark"]{--bg:#141b2d;--card:#24304e;--ink:#e8edf8;--muted:#93a0bf;--line:#2c3856;--back:#4a6fe0;--back2:#6b8cff;--match:#8a7a1e}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*:before,*:after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Instrument Sans",system-ui,sans-serif;font-size:17px;line-height:1.5}
+main{max-width:480px;margin:0 auto;padding:28px 16px 40px}
+h1{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-weight:700;font-size:2.4rem;line-height:1.1;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 20px}
+.stats{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px}
+.stats span{font-weight:500}
+.stats small{color:var(--muted);font-weight:400}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px}
+:focus-visible{outline:3px solid var(--back);outline-offset:2px}
+.restart{background:var(--back);color:#fff;font-weight:500;padding:8px 16px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.card{aspect-ratio:1;perspective:600px;background:none;padding:0}
+.in{position:relative;display:block;width:100%;height:100%;transform-style:preserve-3d;transition:transform .35s}
+.card.up .in,.card.hit .in{transform:rotateY(180deg)}
+.f,.b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:12px;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.b{background:linear-gradient(135deg,var(--back),var(--back2))}
+.f{transform:rotateY(180deg);background:var(--card);border:2px solid var(--line);font-size:2.2rem}
+.card.hit .f{background:var(--match);border-color:var(--match)}
+.msg{min-height:1.6em;margin-top:16px;text-align:center;font-weight:500}
+@media (prefers-reduced-motion:reduce){.in{transition:none}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Pair Up</h1>
+  <p class="sub">Flip two cards at a time and find all 8 matching pairs.</p>
+  <div class="stats">
+    <span id="moves">Moves: 0</span>
+    <span id="time">Time: 0s</span>
+    <button class="restart" id="restart" type="button">New game</button>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="msg" id="msg" aria-live="polite"></div>
+  <div class="stats"><small id="best"></small></div>
+</main>
+<script>
+var SYMS=["🚀","🌵","🎲","🍄","🐙","🔮","🎸","🍋"];
+var KEY="pairup-best",grid=document.getElementById("grid");
+var first=null,lock=false,moves=0,pairs=0,start=0,timer=null;
+function getBest(){try{return parseInt(localStorage.getItem(KEY),10)||0}catch(e){return 0}}
+function showBest(){var b=getBest();document.getElementById("best").textContent=b?"Best: "+b+" moves":""}
+function shuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t}return a}
+function tick(){document.getElementById("time").textContent="Time: "+Math.floor((Date.now()-start)/1000)+"s"}
+function newGame(){
+  clearInterval(timer);timer=null;first=null;lock=false;moves=0;pairs=0;start=0;
+  document.getElementById("moves").textContent="Moves: 0";
+  document.getElementById("time").textContent="Time: 0s";
+  document.getElementById("msg").textContent="";
+  grid.innerHTML="";
+  shuffle(SYMS.concat(SYMS)).forEach(function(s){
+    var c=document.createElement("button");c.type="button";c.className="card";c.dataset.s=s;
+    c.setAttribute("aria-label","Hidden card");
+    c.innerHTML='<span class="in"><span class="b"></span><span class="f">'+s+'</span></span>';
+    c.onclick=function(){flip(c)};
+    grid.appendChild(c);
+  });
+  showBest();
+}
+function flip(c){
+  if(lock||c.classList.contains("up")||c.classList.contains("hit"))return;
+  if(!timer){start=Date.now();timer=setInterval(tick,500)}
+  c.classList.add("up");c.setAttribute("aria-label","Card "+c.dataset.s);
+  if(!first){first=c;return}
+  moves++;document.getElementById("moves").textContent="Moves: "+moves;
+  var a=first,b=c;first=null;
+  if(a.dataset.s===b.dataset.s){
+    a.classList.replace("up","hit");b.classList.replace("up","hit");pairs++;
+    if(pairs===SYMS.length)win();
+  }else{
+    lock=true;
+    setTimeout(function(){
+      [a,b].forEach(function(x){x.classList.remove("up");x.setAttribute("aria-label","Hidden card")});
+      lock=false;
+    },800);
+  }
+}
+function win(){
+  clearInterval(timer);timer=null;tick();
+  var best=getBest(),msg="You won in "+moves+" moves.";
+  if(!best||moves<best){try{localStorage.setItem(KEY,String(moves))}catch(e){}msg+=" New best!"}
+  document.getElementById("msg").textContent=msg;showBest();
+}
+document.getElementById("restart").onclick=newGame;
+newGame();
+</script>
+</body>
+</html>
